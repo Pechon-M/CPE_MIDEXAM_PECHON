@@ -1,0 +1,60 @@
+- name: Install Prometheus
+  hosts: all
+  become: yes
+  vars:  
+    installation_dir: /opt/prometheus
+    jmx_port: 7071
+    prometheus_version: 2.46.0
+    prometheus_url: https://github.com/prometheus/prometheus/releases/download/v{{prometheus_version}}/prometheus-{{prometheus_version}}.linux-amd64.tar.gz
+  tasks:
+    - name: Installation directory
+      file:
+        path: "{{installation_dir}}"
+        state: directory
+        mode: 0755
+    - name: Download & Extract Prometheus from site
+      unarchive:
+        src: "{{prometheus_url}}"
+        dest: "{{installation_dir}}"
+        mode: 0755
+        remote_src: yes
+        extra_opts:
+         --strip-components=1
+    - name: Prometheus script file
+      copy:
+        content: |
+          #!/bin/bash
+          {{installation_dir}}/prometheus --config.file={{installation_dir}}/prometheus.yml --storage.tsdb.path={{installation_dir}}/data
+        dest: "{{installation_dir}}/prometheus.sh"
+        mode: 0755
+    - name: Service file for Prometheus with Copy module
+      copy:
+        dest: /etc/systemd/system/prometheus.service
+        content: |
+          [Unit]
+          Description= Prometheus Service Port 9090
+          After=network.target
+          [Service]
+          ExecStart=/bin/sh {{installation_dir}}/prometheus.sh 
+          Restart=always  
+          [Install]
+          WantedBy=multi-user.target
+        mode: 0755
+    - name: Systemctl daemon-reload after
+      shell: systemctl daemon-reload
+
+    - name: Prometheus start
+      tags: startprometheus
+      systemd:
+          name: 'prometheus'
+          state: started
+          daemon_reload: true
+          enabled: yes     
+    - name: Checking Prometheus is up and listening on port 9090
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 9090
+        delay: 10
+        timeout: 30
+        state: started
+        msg: "Prometheus not seem to be running on {{ansible_host}}"
